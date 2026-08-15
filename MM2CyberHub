@@ -1,9 +1,10 @@
--- LocalScript: MM2CyberHub Premium Menu
+-- LocalScript: MM2CyberHub Premium Menu (полная версия с автофармом и новыми функциями)
 -- Разместите в StarterGui или StarterPlayerScripts
 
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
 local player = Players.LocalPlayer
 
 -- Цветовая палитра
@@ -19,7 +20,6 @@ local COLORS = {
 	toggleOff = Color3.fromRGB(140, 60, 60),
 	border = Color3.fromRGB(80, 80, 80),
 	inputBackground = Color3.fromRGB(50, 50, 50)
-	destroy = Color3.fromRGB(160, 50, 50)
 }
 
 -- Удаляем старый GUI, если он остался
@@ -163,11 +163,9 @@ local autoFarmRunning = false
 local stopAutoFarm = nil  -- будет определена ниже
 
 local function destroyAll()
-	-- Останавливаем автофарм, если он активен
 	if autoFarmRunning and stopAutoFarm then
 		stopAutoFarm()
 	end
-	-- Отключаем все тумблеры
 	for _, entry in ipairs(toggles) do
 		if entry.state and entry.callback then
 			pcall(entry.callback, false, entry.inputBox and entry.inputBox.Text or nil)
@@ -175,24 +173,17 @@ local function destroyAll()
 		if entry.connection then entry.connection:Disconnect() end
 		if entry.inputConnection then entry.inputConnection:Disconnect() end
 	end
-	-- Останавливаем таймер обновления игроков
-	if updatePlayersTimer then
-		updatePlayersTimer = nil
-	end
-	-- Уничтожаем GUI
+	if updatePlayersTimer then updatePlayersTimer = nil end
 	screenGui:Destroy()
 	print("GUI уничтожен")
 end
 
 closeButton.MouseButton1Click:Connect(function()
-	-- Плавное исчезновение
 	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	local goal = { BackgroundTransparency = 1 }
 	local tween = TweenService:Create(mainFrame, tweenInfo, goal)
 	tween:Play()
-	tween.Completed:Connect(function()
-		destroyAll()
-	end)
+	tween.Completed:Connect(destroyAll)
 end)
 
 -- Полноэкранный режим
@@ -224,7 +215,7 @@ maximizeButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Анимации наведения для кнопок управления окном
+-- Анимации наведения
 local function addHoverAnimation(button, defaultColor)
 	button.MouseEnter:Connect(function()
 		TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = COLORS.rowHover}):Play()
@@ -237,7 +228,7 @@ addHoverAnimation(closeButton, Color3.fromRGB(160, 50, 50))
 addHoverAnimation(minimizeButton, Color3.fromRGB(80, 80, 80))
 addHoverAnimation(maximizeButton, Color3.fromRGB(80, 80, 80))
 
--- ================== ПЕРЕТАСКИВАНИЕ ЗА ВЕРХНЮЮ ПАНЕЛЬ ==================
+-- ================== ПЕРЕТАСКИВАНИЕ ==================
 local dragging = false
 local dragStartPos = nil
 local frameStartPos = nil
@@ -249,13 +240,11 @@ topBar.InputBegan:Connect(function(input)
 		frameStartPos = mainFrame.Position
 	end
 end)
-
 topBar.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		dragging = false
 	end
 end)
-
 UserInputService.InputChanged:Connect(function(input)
 	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
 		local currentPos = UserInputService:GetMouseLocation()
@@ -292,13 +281,11 @@ resizeHandle.InputBegan:Connect(function(input)
 		startSize = mainFrame.Size
 	end
 end)
-
 resizeHandle.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		resizing = false
 	end
 end)
-
 UserInputService.InputChanged:Connect(function(input)
 	if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
 		local currentPos = UserInputService:GetMouseLocation()
@@ -331,7 +318,7 @@ contentArea.Parent = mainFrame
 
 local categories = {}
 local categoryButtons = {}
-local activeCategory = "Игрок"
+local activeCategory = "Персонаж"
 
 local function createCategory(name)
 	local scrollFrame = Instance.new("ScrollingFrame")
@@ -392,9 +379,13 @@ local function createCategory(name)
 	return scrollFrame
 end
 
-local playerScroll = createCategory("Игрок")
+-- Создаём категории
+local playerScroll = createCategory("Персонаж")
+local utilsScroll = createCategory("Утилиты")
 local teleportScroll = createCategory("Телепортация")
 local playersScroll = createCategory("Игроки")
+local testScroll = createCategory("Тест")
+
 playerScroll.Visible = true
 
 -- ================== ХРАНИЛИЩЕ ПЕРЕКЛЮЧАТЕЛЕЙ ==================
@@ -534,62 +525,54 @@ local function addToggle(category, name, description, callback, defaultEnabled, 
 	return entry
 end
 
--- ================== ФУНКЦИИ ==================
+-- ================== ФУНКЦИИ ПЕРСОНАЖА ==================
 -- Скорость
 local currentSpeed = nil
 local function applySpeed(enabled, valueText)
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local char = player.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return end
 	if enabled then
 		local speed = tonumber(valueText)
-		if speed and speed > 0 then
+		if speed then
 			humanoid.WalkSpeed = speed
 			currentSpeed = speed
 			print("Скорость установлена на " .. speed)
-		else
-			print("Неверное значение скорости")
-			currentSpeed = nil
 		end
 	else
 		humanoid.WalkSpeed = 16
 		currentSpeed = nil
-		print("Скорость сброшена на 16")
+		print("Скорость сброшена")
 	end
 end
-
-addToggle("Игрок", "Скорость", "Устанавливает скорость ходьбы персонажа.", applySpeed, false, true, "16")
+addToggle("Персонаж", "Скорость", "Скорость ходьбы", applySpeed, false, true, "16")
 
 -- Сила прыжка
 local function applyJumpPower(enabled, valueText)
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local char = player.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return end
 	if enabled then
-		local jumpPower = tonumber(valueText)
-		if jumpPower and jumpPower > 0 then
-			humanoid.JumpPower = jumpPower
-			print("Сила прыжка установлена на " .. jumpPower)
-		else
-			print("Неверное значение силы прыжка")
+		local power = tonumber(valueText)
+		if power then
+			humanoid.JumpPower = power
+			print("Сила прыжка установлена на " .. power)
 		end
 	else
 		humanoid.JumpPower = 50
-		print("Сила прыжка сброшена на 50")
+		print("Сила прыжка сброшена")
 	end
 end
-
-addToggle("Игрок", "Сила прыжка", "Устанавливает силу прыжка персонажа.", applyJumpPower, false, true, "50")
+addToggle("Персонаж", "Сила прыжка", "Сила прыжка", applyJumpPower, false, true, "50")
 
 -- Полёт
 local flyBodyVelocity = nil
 local flyBodyGyro = nil
 local flyConnection = nil
-
 local function startFly()
-	local character = player.Character
-	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local char = player.Character
+	local rootPart = char and char:FindFirstChild("HumanoidRootPart")
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 	if not rootPart or not humanoid then return end
 
 	flyBodyVelocity = Instance.new("BodyVelocity")
@@ -632,125 +615,254 @@ local function startFly()
 		flyBodyGyro.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + camera.CFrame.LookVector)
 	end)
 end
-
 local function stopFly()
-	if flyConnection then
-		flyConnection:Disconnect()
-		flyConnection = nil
-	end
-	if flyBodyVelocity then
-		flyBodyVelocity:Destroy()
-		flyBodyVelocity = nil
-	end
-	if flyBodyGyro then
-		flyBodyGyro:Destroy()
-		flyBodyGyro = nil
-	end
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.PlatformStand = false
-	end
+	if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
+	if flyBodyVelocity then flyBodyVelocity:Destroy(); flyBodyVelocity = nil end
+	if flyBodyGyro then flyBodyGyro:Destroy(); flyBodyGyro = nil end
+	local char = player.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+	if humanoid then humanoid.PlatformStand = false end
 end
-
-addToggle("Игрок", "Полёт", "Включает свободный полёт. Управление: WASD.", function(enabled)
-	if enabled then
-		startFly()
-	else
-		stopFly()
-	end
-end, false)
+addToggle("Персонаж", "Полёт", "Свободный полёт (WASD)", function(enabled) if enabled then startFly() else stopFly() end end, false)
 
 -- NoClip
 local noClipConnection = nil
 local noClipEntry = nil
-
 local function startNoClip()
 	if noClipConnection then return end
 	noClipConnection = game:GetService("RunService").Heartbeat:Connect(function()
-		local character = player.Character
-		if character then
-			for _, part in ipairs(character:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.CanCollide = false
-				end
+		local char = player.Character
+		if char then
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") then part.CanCollide = false end
 			end
 		end
 	end)
 end
-
 local function stopNoClip()
-	if noClipConnection then
-		noClipConnection:Disconnect()
-		noClipConnection = nil
-	end
-	local character = player.Character
-	if character then
-		for _, part in ipairs(character:GetDescendants()) do
-			if part:IsA("BasePart") then
-				part.CanCollide = true
-			end
+	if noClipConnection then noClipConnection:Disconnect(); noClipConnection = nil end
+	local char = player.Character
+	if char then
+		for _, part in ipairs(char:GetDescendants()) do
+			if part:IsA("BasePart") then part.CanCollide = true end
 		end
 	end
 end
-
-noClipEntry = addToggle("Игрок", "NoClip", "Прохождение сквозь стены.", function(enabled)
-	if enabled then
-		startNoClip()
-	else
-		stopNoClip()
-	end
-end, false)
+noClipEntry = addToggle("Персонаж", "NoClip", "Прохождение сквозь стены", function(enabled) if enabled then startNoClip() else stopNoClip() end end, false)
 
 -- Бессмертие
 local godConnection = nil
 local godEntry = nil
-
 local function startGodMode()
 	if godConnection then return end
 	godConnection = game:GetService("RunService").Heartbeat:Connect(function()
-		local character = player.Character
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local char = player.Character
+		local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 		if humanoid and humanoid.Health > 0 then
 			humanoid.MaxHealth = 100
 			humanoid.Health = humanoid.MaxHealth
 		end
 	end)
 end
-
 local function stopGodMode()
-	if godConnection then
-		godConnection:Disconnect()
-		godConnection = nil
+	if godConnection then godConnection:Disconnect(); godConnection = nil end
+end
+godEntry = addToggle("Персонаж", "Бессмертие", "Здоровье всегда максимальное", function(enabled) if enabled then startGodMode() else stopGodMode() end end, false)
+
+-- Гравитация
+local function applyGravity(enabled, valueText)
+	if enabled then
+		local g = tonumber(valueText)
+		if g then
+			workspace.Gravity = g
+			print("Гравитация установлена на " .. g)
+		end
+	else
+		workspace.Gravity = 196.2
+		print("Гравитация сброшена")
 	end
 end
+addToggle("Персонаж", "Гравитация", "Сила тяжести (стандарт 196.2)", applyGravity, false, true, "196.2")
 
-godEntry = addToggle("Игрок", "Бессмертие", "Здоровье всегда максимальное.", function(enabled)
+-- Скорость поворота
+local function applyTurnSpeed(enabled, valueText)
 	if enabled then
-		startGodMode()
+		local speed = tonumber(valueText)
+		if speed then
+			UserInputService.MouseDeltaSensitivity = speed
+			print("Скорость поворота установлена на " .. speed)
+		end
 	else
-		stopGodMode()
+		UserInputService.MouseDeltaSensitivity = 1
+		print("Скорость поворота сброшена")
 	end
-end, false)
+end
+addToggle("Персонаж", "Скорость поворота", "Чувствительность мыши (1 = стандарт)", applyTurnSpeed, false, true, "1")
 
+-- Размер персонажа
+local function applyScale(enabled, valueText)
+	local char = player.Character
+	if not char then return end
+	local scale = tonumber(valueText) or 1
+	if enabled then
+		-- Масштабируем все части
+		for _, part in ipairs(char:GetChildren()) do
+			if part:IsA("BasePart") then
+				part.Size = part.Size * scale
+			end
+		end
+		print("Размер персонажа изменён до " .. scale)
+	else
+		print("Размер персонажа сброшен (требуется перезаход)")
+	end
+end
+addToggle("Персонаж", "Размер персонажа", "Масштабирует тело (например, 1.5)", applyScale, false, true, "1")
+
+-- Прозрачность
+local function applyTransparency(enabled)
+	local char = player.Character
+	if not char then return end
+	for _, part in ipairs(char:GetChildren()) do
+		if part:IsA("BasePart") then
+			part.Transparency = enabled and 0.5 or 0
+		end
+	end
+	print(enabled and "Прозрачность включена" or "Прозрачность выключена")
+end
+addToggle("Персонаж", "Прозрачность", "Делает персонажа полупрозрачным", applyTransparency, false)
+
+-- Цвет тела
+local function applyBodyColor(enabled, colorHex)
+	local char = player.Character
+	if not char then return end
+	if enabled then
+		local color = Color3.fromHex(colorHex or "#FFFFFF")
+		for _, part in ipairs(char:GetChildren()) do
+			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+				part.Color = color
+			end
+		end
+		print("Цвет тела изменён")
+	else
+		print("Цвет тела сброшен (нужно перезайти)")
+	end
+end
+addToggle("Персонаж", "Цвет тела", "Окрашивает части тела в HEX", applyBodyColor, false, true, "#FFFFFF")
+
+-- ================== УТИЛИТЫ ==================
+-- FOV
+local function applyFOV(enabled, valueText)
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+	if enabled then
+		local fov = tonumber(valueText) or 70
+		camera.FieldOfView = fov
+		print("FOV установлен на " .. fov)
+	else
+		camera.FieldOfView = 70
+		print("FOV сброшен")
+	end
+end
+addToggle("Утилиты", "FOV", "Поле зрения камеры (30-120)", applyFOV, false, true, "70")
+
+-- Яркость
+local function applyBrightness(enabled, valueText)
+	if enabled then
+		local brightness = tonumber(valueText) or 2
+		Lighting.Brightness = brightness
+		print("Яркость установлена на " .. brightness)
+	else
+		Lighting.Brightness = 2
+		print("Яркость сброшена")
+	end
+end
+addToggle("Утилиты", "Яркость", "Регулировка яркости мира", applyBrightness, false, true, "2")
+
+-- Скрыть интерфейс
+local function toggleUI(enabled)
+	local starterGui = player:FindFirstChild("PlayerGui")
+	if not starterGui then return end
+	if enabled then
+		for _, child in ipairs(starterGui:GetChildren()) do
+			if child:IsA("ScreenGui") and child.Name ~= "MM2CyberHub" then
+				child.Enabled = false
+			end
+		end
+		print("Интерфейс скрыт")
+	else
+		for _, child in ipairs(starterGui:GetChildren()) do
+			if child:IsA("ScreenGui") and child.Name ~= "MM2CyberHub" then
+				child.Enabled = true
+			end
+		end
+		print("Интерфейс показан")
+	end
+end
+addToggle("Утилиты", "Скрыть интерфейс", "Отключает HUD Roblox", toggleUI, false)
+
+-- Кнопки (однократные действия)
+local function addButton(category, name, onClick)
+	local parentScroll = categories[category]
+	if not parentScroll then return end
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.new(1, 0, 0, 30)
+	button.BackgroundColor3 = COLORS.toggleOn
+	button.BorderSizePixel = 0
+	button.Text = name
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 14
+	button.AutoButtonColor = false
+	button.Parent = parentScroll
+	button.MouseButton1Click:Connect(onClick)
+end
+
+-- Телепорт на спавн
+local function teleportToSpawn()
+	local char = player.Character
+	if not char then return end
+	local rootPart = char:FindFirstChild("HumanoidRootPart")
+	if rootPart then
+		local spawnLocation = workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChild("Spawn")
+		if spawnLocation then
+			rootPart.CFrame = spawnLocation.CFrame + Vector3.new(0, 3, 0)
+			print("Телепорт на спавн выполнен")
+		else
+			print("Точка спавна не найдена")
+		end
+	end
+end
+addButton("Утилиты", "Телепорт на спавн", teleportToSpawn)
+
+-- Быстрое возрождение
+local function quickRespawn()
+	local char = player.Character
+	if char then
+		local humanoid = char:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.Health = 0
+		end
+	end
+end
+addButton("Утилиты", "Быстрое возрождение", quickRespawn)
+
+-- ================== ТЕЛЕПОРТАЦИЯ ==================
 -- Телепортация по клику
 local clickTeleportConnection = nil
-
 local function startClickTeleport()
 	if clickTeleportConnection then return end
 	clickTeleportConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			local character = player.Character
-			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+			local char = player.Character
+			local rootPart = char and char:FindFirstChild("HumanoidRootPart")
 			local camera = workspace.CurrentCamera
 			if not rootPart or not camera then return end
-
 			local mousePos = UserInputService:GetMouseLocation()
 			local ray = camera:ScreenPointToRay(mousePos.X, mousePos.Y)
 			local raycastParams = RaycastParams.new()
 			raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-			raycastParams.FilterDescendantsInstances = {character}
+			raycastParams.FilterDescendantsInstances = {char}
 			local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
 			if result then
 				rootPart.CFrame = CFrame.new(result.Position + Vector3.new(0, 3, 0))
@@ -759,23 +871,12 @@ local function startClickTeleport()
 		end
 	end)
 end
-
 local function stopClickTeleport()
-	if clickTeleportConnection then
-		clickTeleportConnection:Disconnect()
-		clickTeleportConnection = nil
-	end
+	if clickTeleportConnection then clickTeleportConnection:Disconnect(); clickTeleportConnection = nil end
 end
+addToggle("Телепортация", "Телепортация по клику", "Кликните по экрану для перемещения", function(enabled) if enabled then startClickTeleport() else stopClickTeleport() end end, false)
 
-addToggle("Телепортация", "Телепортация", "Кликните по экрану, чтобы телепортироваться.", function(enabled)
-	if enabled then
-		startClickTeleport()
-	else
-		stopClickTeleport()
-	end
-end, false)
-
--- ================== АВТОФАРМ COIN_SERVER ==================
+-- ================== АВТОФАРМ ==================
 local autoFarmHeartbeat = nil
 local autoFarmUpdateThread = nil
 local autoFarmRestartTimer = nil
@@ -837,8 +938,8 @@ stopAutoFarm = function()
 	if autoFarmRestartTimer then autoFarmRestartTimer = nil end
 	if autoFarmBodyVelocity then autoFarmBodyVelocity:Destroy(); autoFarmBodyVelocity = nil end
 	if autoFarmBodyGyro then autoFarmBodyGyro:Destroy(); autoFarmBodyGyro = nil end
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local char = player.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 	if humanoid then humanoid.PlatformStand = false end
 	currentTargetCoin = nil
 	coinList = {}
@@ -853,9 +954,9 @@ local function startAutoFarm()
 	if noClipEntry and not noClipEntry.state then noClipEntry.setState(true); autoFarmNoClipForced = true end
 	if godEntry and not godEntry.state then godEntry.setState(true); autoFarmGodForced = true end
 
-	local character = player.Character
-	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local char = player.Character
+	local rootPart = char and char:FindFirstChild("HumanoidRootPart")
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 	if not rootPart or not humanoid then stopAutoFarm(); return end
 
 	autoFarmBodyVelocity = Instance.new("BodyVelocity")
@@ -942,33 +1043,76 @@ addToggle("Телепортация", "Автофарм Coin_Server", "Лета�
 	end
 end, false, true, "24")
 
--- ================== ФУНКЦИЯ ВЫКИДЫВАНИЯ ИГРОКА ==================
-local selectedPlayer = nil
+-- ================== ТЕСТ ==================
+-- Заморозка персонажа
+local function toggleFreeze(enabled)
+	local char = player.Character
+	if not char then return end
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.PlatformStand = enabled
+		print(enabled and "Персонаж заморожен" or "Персонаж разморожен")
+	end
+end
+addToggle("Тест", "Заморозка персонажа", "Останавливает движение", toggleFreeze, false)
+
+-- Показать FPS
+local fpsLabel
+local fpsConnection
+local function toggleFPS(enabled)
+	if enabled then
+		fpsLabel = Instance.new("TextLabel")
+		fpsLabel.Size = UDim2.fromOffset(100, 30)
+		fpsLabel.Position = UDim2.fromOffset(10, 50)
+		fpsLabel.BackgroundColor3 = Color3.new(0, 0, 0)
+		fpsLabel.BackgroundTransparency = 0.5
+		fpsLabel.TextColor3 = Color3.new(1, 1, 1)
+		fpsLabel.Font = Enum.Font.GothamBold
+		fpsLabel.TextSize = 14
+		fpsLabel.Parent = screenGui
+		fpsConnection = game:GetService("RunService").RenderStepped:Connect(function()
+			fpsLabel.Text = "FPS: " .. math.floor(1 / game:GetService("RunService").RenderStepped:Wait())
+		end)
+	else
+		if fpsLabel then fpsLabel:Destroy(); fpsLabel = nil end
+		if fpsConnection then fpsConnection:Disconnect(); fpsConnection = nil end
+	end
+end
+addToggle("Тест", "Показать FPS", "Отображает FPS в углу", toggleFPS, false)
+
+-- Спавн объекта
+local function spawnObject()
+	local char = player.Character
+	local rootPart = char and char:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+	local part = Instance.new("Part")
+	part.Size = Vector3.new(2, 2, 2)
+	part.Position = rootPart.Position + rootPart.CFrame.LookVector * 5
+	part.Anchored = false
+	part.Parent = workspace
+	print("Куб создан")
+end
+addButton("Тест", "Спавн куба", spawnObject)
+
+-- ================== СПИСОК ИГРОКОВ ==================
 local playerListFrame = nil
 local updatePlayersTimer = nil
 
-local function setupPlayerManagementCategory()
+local function setupPlayerListCategory()
 	local scroll = categories["Игроки"]
-	if not scroll then
-		warn("Категория Игроки не найдена")
-		return
-	end
+	if not scroll then return end
 
-	-- Заголовок
 	local header = Instance.new("TextLabel")
-	header.Name = "Header"
 	header.Size = UDim2.new(1, 0, 0, 24)
 	header.BackgroundTransparency = 1
-	header.Text = "Выберите игрока:"
+	header.Text = "Игроки на сервере:"
 	header.TextColor3 = COLORS.text
 	header.Font = Enum.Font.GothamSemibold
 	header.TextSize = 14
 	header.TextXAlignment = Enum.TextXAlignment.Left
 	header.Parent = scroll
 
-	-- Список игроков (Frame вместо ScrollingFrame)
 	playerListFrame = Instance.new("Frame")
-	playerListFrame.Name = "PlayerList"
 	playerListFrame.Size = UDim2.new(1, 0, 0, 150)
 	playerListFrame.BackgroundColor3 = COLORS.container
 	playerListFrame.BackgroundTransparency = 0.3
@@ -987,112 +1131,43 @@ local function setupPlayerManagementCategory()
 	listPadding.PaddingBottom = UDim.new(0, 4)
 	listPadding.Parent = playerListFrame
 
-	-- Кнопки действий
-	local buttonsFrame = Instance.new("Frame")
-	buttonsFrame.Name = "ButtonsFrame"
-	buttonsFrame.Size = UDim2.new(1, 0, 0, 30)
-	buttonsFrame.BackgroundTransparency = 1
-	buttonsFrame.Parent = scroll
-
-	local buttonsLayout = Instance.new("UIListLayout")
-	buttonsLayout.FillDirection = Enum.FillDirection.Horizontal
-	buttonsLayout.Padding = UDim.new(0, 6)
-	buttonsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	buttonsLayout.Parent = buttonsFrame
-
-	local kickButton = Instance.new("TextButton")
-	kickButton.Name = "KickButton"
-	kickButton.Size = UDim2.new(0.33, -4, 1, 0)
-	kickButton.BackgroundColor3 = COLORS.destroy
-	kickButton.BorderSizePixel = 0
-	kickButton.Text = "Выкинуть"
-	kickButton.TextColor3 = Color3.new(1, 1, 1)
-	kickButton.Font = Enum.Font.GothamBold
-	kickButton.TextSize = 12
-	kickButton.AutoButtonColor = false
-	kickButton.Parent = buttonsFrame
-
-	local kickAllButton = Instance.new("TextButton")
-	kickAllButton.Name = "KickAllButton"
-	kickAllButton.Size = UDim2.new(0.33, -4, 1, 0)
-	kickAllButton.BackgroundColor3 = COLORS.destroy
-	kickAllButton.BorderSizePixel = 0
-	kickAllButton.Text = "Выкинуть всех"
-	kickAllButton.TextColor3 = Color3.new(1, 1, 1)
-	kickAllButton.Font = Enum.Font.GothamBold
-	kickAllButton.TextSize = 12
-	kickAllButton.AutoButtonColor = false
-	kickAllButton.Parent = buttonsFrame
-
 	local refreshButton = Instance.new("TextButton")
-	refreshButton.Name = "RefreshButton"
-	refreshButton.Size = UDim2.new(0.33, -4, 1, 0)
+	refreshButton.Size = UDim2.new(1, 0, 0, 30)
 	refreshButton.BackgroundColor3 = COLORS.toggleOn
 	refreshButton.BorderSizePixel = 0
-	refreshButton.Text = "Обновить"
+	refreshButton.Text = "Обновить список"
 	refreshButton.TextColor3 = Color3.new(1, 1, 1)
 	refreshButton.Font = Enum.Font.GothamBold
-	refreshButton.TextSize = 12
+	refreshButton.TextSize = 14
 	refreshButton.AutoButtonColor = false
-	refreshButton.Parent = buttonsFrame
+	refreshButton.Parent = scroll
 
-	-- Функция обновления списка игроков
 	local function refreshPlayerList()
 		for _, child in ipairs(playerListFrame:GetChildren()) do
-			if child:IsA("TextButton") or child:IsA("TextLabel") then
-				child:Destroy()
-			end
+			if child:IsA("TextLabel") or child:IsA("TextButton") then child:Destroy() end
 		end
-
-		local otherPlayers = {}
-		for _, plr in ipairs(Players:GetPlayers()) do
-			if plr ~= player then
-				table.insert(otherPlayers, plr)
-			end
-		end
-
-		print("Найдено других игроков: " .. #otherPlayers)
-
-		if #otherPlayers == 0 then
-			local noPlayersLabel = Instance.new("TextLabel")
-			noPlayersLabel.Size = UDim2.new(1, 0, 0, 26)
-			noPlayersLabel.BackgroundTransparency = 1
-			noPlayersLabel.Text = "Нет игроков"
-			noPlayersLabel.TextColor3 = COLORS.subText
-			noPlayersLabel.Font = Enum.Font.Gotham
-			noPlayersLabel.TextSize = 13
-			noPlayersLabel.Parent = playerListFrame
+		local playersList = Players:GetPlayers()
+		if #playersList == 0 then
+			local noLabel = Instance.new("TextLabel")
+			noLabel.Size = UDim2.new(1, 0, 0, 26)
+			noLabel.BackgroundTransparency = 1
+			noLabel.Text = "Нет игроков"
+			noLabel.TextColor3 = COLORS.subText
+			noLabel.Font = Enum.Font.Gotham
+			noLabel.TextSize = 13
+			noLabel.Parent = playerListFrame
 			return
 		end
-
-		for _, plr in ipairs(otherPlayers) do
-			local button = Instance.new("TextButton")
-			button.Size = UDim2.new(1, 0, 0, 26)
-			button.BackgroundColor3 = COLORS.row
-			button.BorderSizePixel = 0
-			button.Text = plr.Name
-			button.TextColor3 = COLORS.text
-			button.Font = Enum.Font.Gotham
-			button.TextSize = 13
-			button.AutoButtonColor = false
-			button.Parent = playerListFrame
-
-			if selectedPlayer == plr then
-				button.BackgroundColor3 = COLORS.toggleOn
-			end
-
-			button.MouseButton1Click:Connect(function()
-				selectedPlayer = plr
-				for _, btn in ipairs(playerListFrame:GetChildren()) do
-					if btn:IsA("TextButton") then
-						if btn.Text == plr.Name then
-							btn.BackgroundColor3 = COLORS.toggleOn
-						else
-							btn.BackgroundColor3 = COLORS.row
-						end
-					end
-				end
-			end)
+		for _, plr in ipairs(playersList) do
+			local label = Instance.new("TextLabel")
+			label.Size = UDim2.new(1, 0, 0, 26)
+			label.BackgroundTransparency = 1
+			label.Text = plr.Name
+			label.TextColor3 = COLORS.text
+			label.Font = Enum.Font.Gotham
+			label.TextSize = 13
+			label.TextXAlignment = Enum.TextXAlignment.Left
+			label.Parent = playerListFrame
 		end
 	end
 
@@ -1106,39 +1181,9 @@ local function setupPlayerManagementCategory()
 		end
 	end)
 
-	kickButton.MouseButton1Click:Connect(function()
-		if selectedPlayer then
-			local targetCharacter = selectedPlayer.Character
-			if targetCharacter then
-				local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-				if targetRoot then
-					targetRoot.CFrame = CFrame.new(targetRoot.Position.X, -500, targetRoot.Position.Z)
-					print("Игрок " .. selectedPlayer.Name .. " выкинут за карту")
-				end
-			end
-		else
-			print("Не выбран игрок")
-		end
-	end)
-
-	kickAllButton.MouseButton1Click:Connect(function()
-		for _, plr in ipairs(Players:GetPlayers()) do
-			if plr ~= player then
-				local targetCharacter = plr.Character
-				if targetCharacter then
-					local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-					if targetRoot then
-						targetRoot.CFrame = CFrame.new(targetRoot.Position.X, -500, targetRoot.Position.Z)
-					end
-				end
-			end
-		end
-		print("Все игроки выкинуты за карту")
-	end)
-
 	refreshButton.MouseButton1Click:Connect(refreshPlayerList)
 end
 
-setupPlayerManagementCategory()
+setupPlayerListCategory()
 
-print("Скрипт успешно загружен")
+print("Расширенное меню MM2CyberHub загружено")
