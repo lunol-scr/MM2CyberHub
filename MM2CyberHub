@@ -161,6 +161,7 @@ minimizedOval.MouseButton1Click:Connect(restoreWindow)
 local toggles = {}
 local autoFarmRunning = false
 local stopAutoFarm = nil  -- будет определена ниже
+local stopFly = nil -- будет определена ниже
 
 local function destroyAll()
 	if autoFarmRunning and stopAutoFarm then
@@ -234,19 +235,19 @@ local dragStartPos = nil
 local frameStartPos = nil
 
 topBar.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = true
 		dragStartPos = UserInputService:GetMouseLocation()
 		frameStartPos = mainFrame.Position
 	end
 end)
 topBar.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = false
 	end
 end)
 UserInputService.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		local currentPos = UserInputService:GetMouseLocation()
 		local delta = currentPos - dragStartPos
 		mainFrame.Position = UDim2.new(
@@ -275,19 +276,19 @@ local resizeStartPos = nil
 local startSize = nil
 
 resizeHandle.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		resizing = true
 		resizeStartPos = UserInputService:GetMouseLocation()
 		startSize = mainFrame.Size
 	end
 end)
 resizeHandle.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		resizing = false
 	end
 end)
 UserInputService.InputChanged:Connect(function(input)
-	if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
+	if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		local currentPos = UserInputService:GetMouseLocation()
 		local delta = currentPos - resizeStartPos
 		local newWidth = math.max(300, startSize.X.Offset + delta.X)
@@ -565,7 +566,162 @@ local function applyJumpPower(enabled, valueText)
 end
 addToggle("Персонаж", "Сила прыжка", "Сила прыжка", applyJumpPower, false, true, "50")
 
--- Полёт
+-- ================== ПОЛЁТ С ПОДДЕРЖКОЙ ТЕЛЕФОНА ==================
+-- Виртуальный джойстик (перемещение вперёд/назад/влево/вправо) +
+-- кнопки вверх/вниз (для высоты). Работают через touch, а на ПК как
+-- дополнение к WASD (можно тоже кликать мышью).
+local flyControlsGui = Instance.new("Frame")
+flyControlsGui.Name = "FlyControls"
+flyControlsGui.Size = UDim2.new(1, 0, 1, 0)
+flyControlsGui.BackgroundTransparency = 1
+flyControlsGui.Visible = false
+flyControlsGui.ZIndex = 50
+flyControlsGui.Parent = screenGui
+
+-- Джойстик (левый нижний угол)
+local joystickBG = Instance.new("Frame")
+joystickBG.Name = "JoystickBG"
+joystickBG.Size = UDim2.fromOffset(130, 130)
+joystickBG.Position = UDim2.new(0, 30, 1, -170)
+joystickBG.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+joystickBG.BackgroundTransparency = 0.4
+joystickBG.BorderSizePixel = 0
+joystickBG.ZIndex = 50
+joystickBG.Parent = flyControlsGui
+
+local joystickBGCorner = Instance.new("UICorner")
+joystickBGCorner.CornerRadius = UDim.new(1, 0)
+joystickBGCorner.Parent = joystickBG
+
+local joystickBGStroke = Instance.new("UIStroke")
+joystickBGStroke.Color = COLORS.border
+joystickBGStroke.Thickness = 2
+joystickBGStroke.Parent = joystickBG
+
+local joystickKnob = Instance.new("Frame")
+joystickKnob.Name = "JoystickKnob"
+joystickKnob.Size = UDim2.fromOffset(55, 55)
+joystickKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+joystickKnob.Position = UDim2.new(0.5, 0, 0.5, 0)
+joystickKnob.BackgroundColor3 = COLORS.toggleOn
+joystickKnob.BorderSizePixel = 0
+joystickKnob.ZIndex = 51
+joystickKnob.Parent = joystickBG
+
+local joystickKnobCorner = Instance.new("UICorner")
+joystickKnobCorner.CornerRadius = UDim.new(1, 0)
+joystickKnobCorner.Parent = joystickKnob
+
+-- Кнопки вверх/вниз (правый нижний угол)
+local upButton = Instance.new("TextButton")
+upButton.Name = "UpButton"
+upButton.Size = UDim2.fromOffset(60, 60)
+upButton.Position = UDim2.new(1, -90, 1, -230)
+upButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+upButton.BackgroundTransparency = 0.4
+upButton.Text = "▲"
+upButton.TextColor3 = COLORS.text
+upButton.Font = Enum.Font.GothamBold
+upButton.TextSize = 22
+upButton.AutoButtonColor = false
+upButton.ZIndex = 50
+upButton.Parent = flyControlsGui
+
+local upButtonCorner = Instance.new("UICorner")
+upButtonCorner.CornerRadius = UDim.new(1, 0)
+upButtonCorner.Parent = upButton
+
+local downButton = Instance.new("TextButton")
+downButton.Name = "DownButton"
+downButton.Size = UDim2.fromOffset(60, 60)
+downButton.Position = UDim2.new(1, -90, 1, -160)
+downButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+downButton.BackgroundTransparency = 0.4
+downButton.Text = "▼"
+downButton.TextColor3 = COLORS.text
+downButton.Font = Enum.Font.GothamBold
+downButton.TextSize = 22
+downButton.AutoButtonColor = false
+downButton.ZIndex = 50
+downButton.Parent = flyControlsGui
+
+local downButtonCorner = Instance.new("UICorner")
+downButtonCorner.CornerRadius = UDim.new(1, 0)
+downButtonCorner.Parent = downButton
+
+-- Состояние джойстика и кнопок
+local joystickVector = Vector2.new(0, 0) -- x: влево/вправо, y: вперёд(-1)/назад(1)
+local joystickInputId = nil
+local joystickRadius = 40 -- максимальное смещение ручки от центра
+
+local upHeld = false
+local downHeld = false
+
+local function resetJoystick()
+	joystickInputId = nil
+	joystickVector = Vector2.new(0, 0)
+	TweenService:Create(joystickKnob, TweenInfo.new(0.15), {Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
+end
+
+joystickBG.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		joystickInputId = input
+		local center = joystickBG.AbsolutePosition + joystickBG.AbsoluteSize / 2
+		local pos = Vector2.new(input.Position.X, input.Position.Y)
+		local offset = pos - center
+		if offset.Magnitude > joystickRadius then
+			offset = offset.Unit * joystickRadius
+		end
+		joystickKnob.Position = UDim2.new(0.5, offset.X, 0.5, offset.Y)
+		joystickVector = Vector2.new(offset.X / joystickRadius, offset.Y / joystickRadius)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if joystickInputId and input == joystickInputId then
+		local center = joystickBG.AbsolutePosition + joystickBG.AbsoluteSize / 2
+		local pos = Vector2.new(input.Position.X, input.Position.Y)
+		local offset = pos - center
+		if offset.Magnitude > joystickRadius then
+			offset = offset.Unit * joystickRadius
+		end
+		joystickKnob.Position = UDim2.new(0.5, offset.X, 0.5, offset.Y)
+		joystickVector = Vector2.new(offset.X / joystickRadius, offset.Y / joystickRadius)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if joystickInputId and input == joystickInputId then
+		resetJoystick()
+	end
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		upHeld = false
+		downHeld = false
+	end
+end)
+
+upButton.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		upHeld = true
+	end
+end)
+upButton.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		upHeld = false
+	end
+end)
+
+downButton.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		downHeld = true
+	end
+end)
+downButton.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		downHeld = false
+	end
+end)
+
 local flyBodyVelocity = nil
 local flyBodyGyro = nil
 local flyConnection = nil
@@ -587,12 +743,17 @@ local function startFly()
 
 	humanoid.PlatformStand = true
 
+	-- Показываем джойстик и кнопки вверх/вниз
+	flyControlsGui.Visible = true
+
 	flyConnection = game:GetService("RunService").RenderStepped:Connect(function()
 		if not flyBodyVelocity or not flyBodyGyro then return end
 		local camera = workspace.CurrentCamera
 		if not camera then return end
 
 		local moveDirection = Vector3.zero
+
+		-- Ввод с клавиатуры (ПК)
 		local keys = UserInputService:GetKeysPressed()
 		for _, key in ipairs(keys) do
 			if key.KeyCode == Enum.KeyCode.W then
@@ -606,6 +767,20 @@ local function startFly()
 			end
 		end
 
+		-- Ввод с джойстика (телефон/сенсор)
+		if joystickVector.Magnitude > 0.05 then
+			moveDirection += camera.CFrame.LookVector * (-joystickVector.Y)
+			moveDirection += camera.CFrame.RightVector * (joystickVector.X)
+		end
+
+		-- Вертикальное перемещение (кнопки вверх/вниз, работают и мышью, и тачем)
+		if upHeld then
+			moveDirection += Vector3.new(0, 1, 0)
+		end
+		if downHeld then
+			moveDirection += Vector3.new(0, -1, 0)
+		end
+
 		local flySpeed = currentSpeed or 50
 		if moveDirection.Magnitude > 0 then
 			moveDirection = moveDirection.Unit * flySpeed
@@ -615,15 +790,20 @@ local function startFly()
 		flyBodyGyro.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + camera.CFrame.LookVector)
 	end)
 end
-local function stopFly()
+stopFly = function()
 	if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
 	if flyBodyVelocity then flyBodyVelocity:Destroy(); flyBodyVelocity = nil end
 	if flyBodyGyro then flyBodyGyro:Destroy(); flyBodyGyro = nil end
 	local char = player.Character
 	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 	if humanoid then humanoid.PlatformStand = false end
+	-- Скрываем джойстик и сбрасываем состояние ввода
+	flyControlsGui.Visible = false
+	resetJoystick()
+	upHeld = false
+	downHeld = false
 end
-addToggle("Персонаж", "Полёт", "Свободный полёт (WASD)", function(enabled) if enabled then startFly() else stopFly() end end, false)
+addToggle("Персонаж", "Полёт", "Свободный полёт (WASD или джойстик на телефоне)", function(enabled) if enabled then startFly() else stopFly() end end, false)
 
 -- NoClip
 local noClipConnection = nil
