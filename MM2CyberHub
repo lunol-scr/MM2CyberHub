@@ -995,6 +995,25 @@ local function applyBrightness(enabled, valueText)
 end
 addToggle("Утилиты", "Яркость", "Регулировка яркости мира", applyBrightness, false, true, "2")
 
+-- Анти-АФК
+-- Использует стандартный приём VirtualUser: когда Roblox собирается
+-- пометить игрока как неактивного (событие Idled), эмулируем клик,
+-- чтобы сбросить таймер бездействия и не быть выкинутым с сервера.
+local VirtualUser = game:GetService("VirtualUser")
+local antiAfkConnection = nil
+local function startAntiAFK()
+	if antiAfkConnection then return end
+	antiAfkConnection = player.Idled:Connect(function()
+		VirtualUser:CaptureController()
+		VirtualUser:ClickButton2(Vector2.new())
+		print("Анти-АФК: активность симулирована")
+	end)
+end
+local function stopAntiAFK()
+	if antiAfkConnection then antiAfkConnection:Disconnect(); antiAfkConnection = nil end
+end
+addToggle("Утилиты", "Анти-АФК", "Не даёт серверу пометить тебя как неактивного", function(enabled) if enabled then startAntiAFK() else stopAntiAFK() end end, false)
+
 -- Скрыть интерфейс
 local function toggleUI(enabled)
 	local starterGui = player:FindFirstChild("PlayerGui")
@@ -1070,26 +1089,17 @@ local function startClickTeleport()
 	if clickTeleportConnection then return end
 	clickTeleportConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
-
-		-- Поддержка мыши (ПК) и касания (телефон)
-		local isMouse = input.UserInputType == Enum.UserInputType.MouseButton1
-		local isTouch = input.UserInputType == Enum.UserInputType.Touch
-
-		if isMouse or isTouch then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			local char = player.Character
 			local rootPart = char and char:FindFirstChild("HumanoidRootPart")
 			local camera = workspace.CurrentCamera
 			if not rootPart or not camera then return end
-
-			-- Для мыши и тача используем актуальную позицию указателя
 			local mousePos = UserInputService:GetMouseLocation()
 			local ray = camera:ScreenPointToRay(mousePos.X, mousePos.Y)
-
 			local raycastParams = RaycastParams.new()
 			raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
 			raycastParams.FilterDescendantsInstances = {char}
 			local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
-
 			if result then
 				rootPart.CFrame = CFrame.new(result.Position + Vector3.new(0, 3, 0))
 				print("Телепортация к " .. tostring(result.Position))
