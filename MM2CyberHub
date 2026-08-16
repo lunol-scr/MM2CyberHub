@@ -726,6 +726,22 @@ local flyBodyVelocity = nil
 local flyBodyGyro = nil
 local flyConnection = nil
 local function startFly()
+	-- Если полёт уже был запущен ранее (например, до смерти персонажа) -
+	-- сначала полностью очищаем старое состояние, чтобы не плодить
+	-- дублирующиеся соединения/объекты при повторном вызове.
+	if flyConnection then
+		flyConnection:Disconnect()
+		flyConnection = nil
+	end
+	if flyBodyVelocity then
+		flyBodyVelocity:Destroy()
+		flyBodyVelocity = nil
+	end
+	if flyBodyGyro then
+		flyBodyGyro:Destroy()
+		flyBodyGyro = nil
+	end
+
 	local char = player.Character
 	local rootPart = char and char:FindFirstChild("HumanoidRootPart")
 	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
@@ -747,7 +763,7 @@ local function startFly()
 	flyControlsGui.Visible = true
 
 	flyConnection = game:GetService("RunService").RenderStepped:Connect(function()
-		if not flyBodyVelocity or not flyBodyGyro then return end
+		if not flyBodyVelocity or not flyBodyGyro or not flyBodyVelocity.Parent then return end
 		local camera = workspace.CurrentCamera
 		if not camera then return end
 
@@ -898,7 +914,7 @@ local function applyScale(enabled, valueText)
 end
 addToggle("Персонаж", "Размер персонажа", "Масштабирует тело (например, 1.5)", applyScale, false, true, "1")
 
--- Прозрачность
+-- Прозрачность (частичная)
 local function applyTransparency(enabled)
 	local char = player.Character
 	if not char then return end
@@ -910,6 +926,27 @@ local function applyTransparency(enabled)
 	print(enabled and "Прозрачность включена" or "Прозрачность выключена")
 end
 addToggle("Персонаж", "Прозрачность", "Делает персонажа полупрозрачным", applyTransparency, false)
+
+-- Невидимость (полная)
+-- ВАЖНО: это LocalScript, поэтому изменение Transparency видно ТОЛЬКО тебе -
+-- на других игроков это не влияет, они по-прежнему видят твоего персонажа
+-- как обычно (клиентские правки внешности не реплицируются другим клиентам).
+-- Для настоящей невидимости от других игроков понадобится серверный скрипт
+-- с RemoteEvent, синхронизирующий Transparency у всех клиентов - это уже
+-- за пределами одного LocalScript, могу помочь отдельно, если понадобится.
+local function applyInvisibility(enabled)
+	local char = player.Character
+	if not char then return end
+	for _, part in ipairs(char:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Transparency = enabled and 1 or 0
+		elseif part:IsA("Decal") then
+			part.Transparency = enabled and 1 or 0
+		end
+	end
+	print(enabled and "Невидимость включена (видно только тебе, другие видят как обычно)" or "Невидимость выключена")
+end
+addToggle("Персонаж", "Невидимость", "Скрывает модель персонажа (видно только тебе)", applyInvisibility, false)
 
 -- Цвет тела
 local function applyBodyColor(enabled, colorHex)
@@ -1033,17 +1070,26 @@ local function startClickTeleport()
 	if clickTeleportConnection then return end
 	clickTeleportConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+		-- Поддержка мыши (ПК) и касания (телефон)
+		local isMouse = input.UserInputType == Enum.UserInputType.MouseButton1
+		local isTouch = input.UserInputType == Enum.UserInputType.Touch
+
+		if isMouse or isTouch then
 			local char = player.Character
 			local rootPart = char and char:FindFirstChild("HumanoidRootPart")
 			local camera = workspace.CurrentCamera
 			if not rootPart or not camera then return end
+
+			-- Для мыши и тача используем актуальную позицию указателя
 			local mousePos = UserInputService:GetMouseLocation()
 			local ray = camera:ScreenPointToRay(mousePos.X, mousePos.Y)
+
 			local raycastParams = RaycastParams.new()
 			raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
 			raycastParams.FilterDescendantsInstances = {char}
 			local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
+
 			if result then
 				rootPart.CFrame = CFrame.new(result.Position + Vector3.new(0, 3, 0))
 				print("Телепортация к " .. tostring(result.Position))
@@ -1056,13 +1102,20 @@ local function stopClickTeleport()
 end
 addToggle("Телепортация", "Телепортация по клику", "Кликните по экрану для перемещения", function(enabled) if enabled then startClickTeleport() else stopClickTeleport() end end, false)
 
--- ================== АВТОФАРМ ==================
+-- ================== АВТОФАРМ (с исправлением "возврата" по уже собранным монетам) ==================
+-- Теперь список монет хранит ссылки на сами объекты (Instance), а не только
+-- координаты. Плюс добавлен временный "чёрный список" недавно посещённых
+-- монет (visitedCoins), чтобы фоновое пересканирование workspace не
+-- подсовывало снова ту же монету, если сервер ещё не успел её удалить -
+-- именно это раньше приводило к тому, что персонаж улетал обратно.
 local autoFarmHeartbeat = nil
 local autoFarmUpdateThread = nil
 local autoFarmRestartTimer = nil
 local autoFarmSpeed = 24
-local currentTargetCoin = nil
-local coinList = {}
+local currentTargetCoin = nil -- теперь это {instance = obj, position = Vector3}
+local coinList = {} -- список записей {instance = obj, position = Vector3}
+local visitedCoins = {} -- [instance] = os.clock() времени последнего посещения
+local VISITED_COOLDOWN = 3 -- секунд, в течение которых монета игнорируется после "посещения"
 local autoFarmNoClipForced = false
 local autoFarmGodForced = false
 local autoFarmBodyVelocity = nil
@@ -1070,6 +1123,7 @@ local autoFarmBodyGyro = nil
 
 local function updateCoinList()
 	coinList = {}
+	local now = os.clock()
 	local allObjects = workspace:GetDescendants()
 	for _, obj in ipairs(allObjects) do
 		if obj.Name == "Coin_Server" then
@@ -1080,8 +1134,17 @@ local function updateCoinList()
 				position = obj.PrimaryPart.Position
 			end
 			if position then
-				table.insert(coinList, position)
+				local visitedAt = visitedCoins[obj]
+				if not visitedAt or (now - visitedAt) > VISITED_COOLDOWN then
+					table.insert(coinList, {instance = obj, position = position})
+				end
 			end
+		end
+	end
+	-- Чистим устаревшие записи посещённых монет, чтобы таблица не росла бесконечно
+	for obj, t in pairs(visitedCoins) do
+		if (not obj.Parent) or (now - t) > VISITED_COOLDOWN then
+			visitedCoins[obj] = nil
 		end
 	end
 end
@@ -1091,20 +1154,20 @@ local function findClosestCoin()
 	local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 	if not rootPart then return nil end
 	local closestDistance = math.huge
-	local closestPos = nil
-	for _, pos in ipairs(coinList) do
-		local distance = (pos - rootPart.Position).Magnitude
+	local closestEntry = nil
+	for _, entry in ipairs(coinList) do
+		local distance = (entry.position - rootPart.Position).Magnitude
 		if distance < closestDistance then
 			closestDistance = distance
-			closestPos = pos
+			closestEntry = entry
 		end
 	end
-	return closestPos
+	return closestEntry
 end
 
-local function removeCoinFromList(pos)
-	for i, p in ipairs(coinList) do
-		if p == pos then
+local function removeCoinFromList(instanceObj)
+	for i, entry in ipairs(coinList) do
+		if entry.instance == instanceObj then
 			table.remove(coinList, i)
 			break
 		end
@@ -1162,8 +1225,8 @@ local function startAutoFarm()
 				updateCoinList()
 				if currentTargetCoin then
 					local stillExists = false
-					for _, p in ipairs(coinList) do
-						if p == currentTargetCoin then stillExists = true; break end
+					for _, entry in ipairs(coinList) do
+						if entry.instance == currentTargetCoin.instance then stillExists = true; break end
 					end
 					if not stillExists then currentTargetCoin = findClosestCoin() end
 				end
@@ -1194,12 +1257,22 @@ local function startAutoFarm()
 			if not currentTargetCoin then autoFarmBodyVelocity.Velocity = Vector3.zero; return end
 		end
 
-		local targetPos = currentTargetCoin
+		-- Если объект монеты уже уничтожен сервером (реально собран) - сразу берём следующую
+		if not currentTargetCoin.instance or not currentTargetCoin.instance.Parent then
+			removeCoinFromList(currentTargetCoin.instance)
+			currentTargetCoin = findClosestCoin()
+			return
+		end
+
+		local targetPos = currentTargetCoin.position
 		local direction = targetPos - rootPart.Position
 		local distance = direction.Magnitude
 
 		if distance < 0.1 then
-			removeCoinFromList(currentTargetCoin)
+			-- Отмечаем монету как "посещённую" на несколько секунд, чтобы фоновое
+			-- пересканирование не подсунуло её снова, пока сервер не удалит объект
+			visitedCoins[currentTargetCoin.instance] = os.clock()
+			removeCoinFromList(currentTargetCoin.instance)
 			currentTargetCoin = findClosestCoin()
 			return
 		else
@@ -1223,6 +1296,83 @@ addToggle("Телепортация", "Автофарм Coin_Server", "Лета�
 	end
 end, false, true, "24")
 
+-- ================== ESP (ПОДСВЕТКА ИГРОКОВ) ==================
+-- Клиентская подсветка других игроков через стены (Highlight). Это тоже
+-- чисто визуальный эффект локального клиента - на других игроков никак
+-- не влияет и не изменяет их видимость для остальных.
+local espEnabled = false
+local espHighlights = {} -- [character] = Highlight instance
+local espCharacterConnections = {} -- [player] = Connection
+
+local function addESPHighlight(char)
+	if not char or espHighlights[char] then return end
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "MM2CyberHub_ESP"
+	highlight.FillColor = Color3.fromRGB(255, 60, 60)
+	highlight.FillTransparency = 0.5
+	highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+	highlight.OutlineTransparency = 0
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Parent = char
+	espHighlights[char] = highlight
+end
+
+local function removeESPHighlight(char)
+	if char and espHighlights[char] then
+		espHighlights[char]:Destroy()
+		espHighlights[char] = nil
+	end
+end
+
+local function setupPlayerESP(plr)
+	if plr == player then return end
+	if espCharacterConnections[plr] then
+		espCharacterConnections[plr]:Disconnect()
+	end
+	espCharacterConnections[plr] = plr.CharacterAdded:Connect(function(char)
+		if espEnabled then
+			addESPHighlight(char)
+		end
+	end)
+	if plr.Character and espEnabled then
+		addESPHighlight(plr.Character)
+	end
+end
+
+local function teardownPlayerESP(plr)
+	if espCharacterConnections[plr] then
+		espCharacterConnections[plr]:Disconnect()
+		espCharacterConnections[plr] = nil
+	end
+	if plr.Character then
+		removeESPHighlight(plr.Character)
+	end
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+	setupPlayerESP(plr)
+end
+Players.PlayerAdded:Connect(setupPlayerESP)
+Players.PlayerRemoving:Connect(teardownPlayerESP)
+
+local function applyESP(enabled)
+	espEnabled = enabled
+	if enabled then
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= player and plr.Character then
+				addESPHighlight(plr.Character)
+			end
+		end
+		print("ESP игроков включен")
+	else
+		for char, _ in pairs(espHighlights) do
+			removeESPHighlight(char)
+		end
+		print("ESP игроков выключен")
+	end
+end
+addToggle("Игроки", "ESP игроков", "Подсвечивает игроков сквозь стены", applyESP, false)
+
 -- ================== ТЕСТ ==================
 -- Заморозка персонажа
 local function toggleFreeze(enabled)
@@ -1241,6 +1391,7 @@ local fpsLabel
 local fpsConnection
 local function toggleFPS(enabled)
 	if enabled then
+		if fpsLabel then return end -- уже создан, не дублируем при повторном вызове
 		fpsLabel = Instance.new("TextLabel")
 		fpsLabel.Size = UDim2.fromOffset(100, 30)
 		fpsLabel.Position = UDim2.fromOffset(10, 50)
@@ -1365,5 +1516,23 @@ local function setupPlayerListCategory()
 end
 
 setupPlayerListCategory()
+
+-- ================== АВТОВОССТАНОВЛЕНИЕ ФУНКЦИЙ ПОСЛЕ СМЕРТИ/РЕСПАВНА ==================
+-- При каждом новом появлении персонажа (смерть, начало нового раунда) заново
+-- применяем все функции, у которых тумблер в GUI сейчас включён (ON).
+-- Это касается всех функций из категории "Персонаж" (скорость, полёт,
+-- noclip, бессмертие, невидимость и т.д.), так как их эффекты обычно
+-- завязаны на конкретный экземпляр персонажа и пропадают при возрождении.
+player.CharacterAdded:Connect(function(char)
+	local humanoid = char:WaitForChild("Humanoid", 5)
+	local rootPart = char:WaitForChild("HumanoidRootPart", 5)
+	if not humanoid or not rootPart then return end
+	task.wait(0.2) -- небольшая пауза, чтобы персонаж успел стабилизироваться после спавна
+	for _, entry in ipairs(toggles) do
+		if entry.state and entry.callback then
+			pcall(entry.callback, true, entry.inputBox and entry.inputBox.Text or nil)
+		end
+	end
+end)
 
 print("Расширенное меню MM2CyberHub загружено")
